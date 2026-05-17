@@ -189,8 +189,6 @@ function routeTenant(tenant, phone, text) {
 const SIGNUP_WELCOME = [
   "👋 Welcome to Rezzy Booking Bot.",
   "",
-  "We help salons take WhatsApp bookings automatically — no apps, no missed messages.",
-  "",
   "Let's get you set up. *What's your business name?*",
   "(e.g. Glamour Salon Dubai)",
 ].join("\n");
