@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(superpowers:brainstorming)",
+      "Skill(superpowers:brainstorming:*)",
+      "Bash(ngrok --version)",
+      "Bash(ngrok config *)",
+      "PowerShell(winget install --id ngrok.ngrok --silent --accept-source-agreements --accept-package-agreements 2>&1)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); ngrok --version)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); ngrok config check 2>&1)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); ngrok config add-authtoken 2xluRgf3IlY9obEAoFIk5LjMfZP_5DsmwSMNjt9LqBq4rtDPN 2>&1)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); \\(Get-Command ngrok\\).Source)",
+      "PowerShell(& \"C:\\\\Users\\\\franc\\\\AppData\\\\Local\\\\Microsoft\\\\WinGet\\\\Links\\\\ngrok.exe\" update 2>&1)",
+      "PowerShell(& \"C:\\\\Users\\\\franc\\\\AppData\\\\Local\\\\Microsoft\\\\WinGet\\\\Links\\\\ngrok.exe\" --version 2>&1)"
+    ]
+  }
+}
