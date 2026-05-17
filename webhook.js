@@ -298,11 +298,7 @@ function handleSignup(phone, text) {
       return [
         `Thanks, *${session.name}*! 🎉`,
         "",
-        `Saved: ${lead.name} — ${lead.city}`,
-        "",
-        "Our staff will call you soon to discuss your working hours, services, and pricing — and to set up your dedicated Rezzy booking bot.",
-        "",
-        "Reply *restart* if you want to change anything.",
+        "Our staff will call you soon to set up your dedicated Booking Bot.",
       ].join("\n");
     }
     case "DONE":
