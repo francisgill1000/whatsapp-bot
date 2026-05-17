@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { createServer } from "node:http";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 const {
   WEBHOOK_VERIFY_TOKEN,
@@ -138,6 +139,18 @@ async function sendText(to, body) {
   console.log(`↩️  (meta) replied to ${to}: ${body.split("\n")[0]}…`);
 }
 
+function validateTwilioSignature(fullUrl, params, signature) {
+  if (!signature || !TWILIO_AUTH_TOKEN) return false;
+  const entries = [...params.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  let data = fullUrl;
+  for (const [key, value] of entries) data += key + value;
+  const expected = createHmac("sha1", TWILIO_AUTH_TOKEN).update(data).digest("base64");
+  const a = Buffer.from(expected);
+  const b = Buffer.from(signature);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
 async function sendTwilioText(to, body) {
   const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
   const auth = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString("base64");
@@ -229,8 +242,29 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    const proto = req.headers["x-forwarded-proto"] ?? "https";
+    const host = req.headers["x-forwarded-host"] ?? req.headers.host;
+    const fullUrl = process.env.TWILIO_WEBHOOK_URL ?? `${proto}://${host}${req.url}`;
+    const signature = req.headers["x-twilio-signature"];
+
+    let params;
     try {
-      const params = new URLSearchParams(raw);
+      params = new URLSearchParams(raw);
+    } catch (err) {
+      console.error("Failed to parse Twilio webhook body:", err.message);
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    if (!validateTwilioSignature(fullUrl, params, signature)) {
+      console.warn(`❌ Twilio signature validation failed for ${fullUrl}`);
+      res.writeHead(403, { "Content-Type": "text/plain" });
+      res.end("Forbidden");
+      return;
+    }
+
+    try {
       const fromRaw = params.get("From") ?? "";
       const text = params.get("Body") ?? "";
       const from = fromRaw.replace(/^whatsapp:/, "").replace(/^\+/, "");
@@ -241,7 +275,7 @@ const server = createServer(async (req, res) => {
         await sendTwilioText(from, reply);
       }
     } catch (err) {
-      console.error("Failed to parse Twilio webhook body:", err.message);
+      console.error("Failed to handle Twilio message:", err.message);
     }
 
     res.writeHead(200, { "Content-Type": "text/xml" });
