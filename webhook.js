@@ -7,12 +7,17 @@ const {
   WHATSAPP_PHONE_NUMBER_ID,
   WHATSAPP_TOKEN,
   WHATSAPP_API_VERSION = "v25.0",
+  TWILIO_ACCOUNT_SID,
+  TWILIO_AUTH_TOKEN,
+  TWILIO_FROM,
 } = process.env;
 
 if (!WEBHOOK_VERIFY_TOKEN || !WHATSAPP_PHONE_NUMBER_ID || !WHATSAPP_TOKEN) {
-  console.error("Missing env vars. Check your .env file.");
+  console.error("Missing Meta env vars. Check your .env file.");
   process.exit(1);
 }
+
+const twilioEnabled = !!(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_FROM);
 
 const availableSlots = new Set([
   "Tomorrow 10:00 AM",
@@ -127,10 +132,34 @@ async function sendText(to, body) {
   });
   const data = await res.json();
   if (!res.ok) {
-    console.error("❌ Reply failed:", res.status, JSON.stringify(data));
+    console.error("❌ Meta reply failed:", res.status, JSON.stringify(data));
     return;
   }
-  console.log(`↩️  replied to ${to}: ${body.split("\n")[0]}…`);
+  console.log(`↩️  (meta) replied to ${to}: ${body.split("\n")[0]}…`);
+}
+
+async function sendTwilioText(to, body) {
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
+  const auth = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString("base64");
+  const form = new URLSearchParams({
+    From: `whatsapp:${TWILIO_FROM}`,
+    To: `whatsapp:+${to}`,
+    Body: body,
+  });
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: form,
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    console.error("❌ Twilio reply failed:", res.status, JSON.stringify(data));
+    return;
+  }
+  console.log(`↩️  (twilio) replied to ${to}: ${body.split("\n")[0]}…`);
 }
 
 const server = createServer(async (req, res) => {
@@ -166,7 +195,7 @@ const server = createServer(async (req, res) => {
         const from = message.from;
         const type = message.type;
         const text = message.text?.body ?? "";
-        console.log(`📩 from ${from}: ${text || `[${type}]`}`);
+        console.log(`📩 (meta) from ${from}: ${text || `[${type}]`}`);
 
         if (type === "text" && text) {
           const reply = route(from, text);
@@ -176,16 +205,47 @@ const server = createServer(async (req, res) => {
         }
       } else if (change?.statuses) {
         const s = change.statuses[0];
-        console.log(`📊 status: ${s.status} (msg ${s.id})`);
+        console.log(`📊 (meta) status: ${s.status} (msg ${s.id})`);
       } else {
-        console.log("📦 event:", JSON.stringify(body));
+        console.log("📦 (meta) event:", JSON.stringify(body));
       }
     } catch (err) {
-      console.error("Failed to parse webhook body:", err.message);
+      console.error("Failed to parse Meta webhook body:", err.message);
     }
 
     res.writeHead(200);
     res.end();
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/twilio") {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+
+    if (!twilioEnabled) {
+      console.warn("/twilio hit but Twilio env not configured");
+      res.writeHead(503, { "Content-Type": "text/plain" });
+      res.end("Twilio not configured");
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams(raw);
+      const fromRaw = params.get("From") ?? "";
+      const text = params.get("Body") ?? "";
+      const from = fromRaw.replace(/^whatsapp:/, "").replace(/^\+/, "");
+      console.log(`📩 (twilio) from ${from}: ${text}`);
+
+      if (from && text) {
+        const reply = route(from, text);
+        await sendTwilioText(from, reply);
+      }
+    } catch (err) {
+      console.error("Failed to parse Twilio webhook body:", err.message);
+    }
+
+    res.writeHead(200, { "Content-Type": "text/xml" });
+    res.end("<Response></Response>");
     return;
   }
 
@@ -194,6 +254,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(Number(WEBHOOK_PORT), () => {
-  console.log(`🚀 Rezzy Booking bot on http://localhost:${WEBHOOK_PORT}/webhook`);
-  console.log(`   Verify token: ${WEBHOOK_VERIFY_TOKEN}`);
+  console.log(`🚀 Rezzy Booking bot on http://localhost:${WEBHOOK_PORT}`);
+  console.log(`   Meta webhook:   /webhook   (verify token: ${WEBHOOK_VERIFY_TOKEN})`);
+  console.log(`   Twilio webhook: /twilio    ${twilioEnabled ? `(from ${TWILIO_FROM})` : "(disabled — set TWILIO_* env vars)"}`);
 });
