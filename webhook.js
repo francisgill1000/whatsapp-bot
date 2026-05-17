@@ -187,11 +187,12 @@ function routeTenant(tenant, phone, text) {
 }
 
 const SIGNUP_WELCOME = [
-  "👋 Welcome to *Rezzy* by Eloquent FZE LLC",
+  "👋 Welcome to *Rezzy Booking Bot*",
   "",
   "We help salons take WhatsApp bookings automatically — no apps, no missed messages.",
   "",
   "Let's get you set up. *What's your business name?*",
+  "(e.g. Glamour Salon Dubai)",
 ].join("\n");
 
 const HOURS_PRESETS = [
@@ -207,6 +208,12 @@ const SERVICES_PRESETS = [
   "Haircut 200, Color 400, Treatment 300, Facial 250 (AED)",
   "Haircut 50, Beard 30, Shampoo 20 (AED)",
 ];
+
+const MAX_UNRELATED = 3;
+const GREETING_WORDS = new Set([
+  "hi", "hello", "hey", "yo", "hola", "salam", "salaam", "marhaba",
+  "menu", "start", "test", "ok", "okay",
+]);
 
 function presetPrompt(label, presets, exampleHint) {
   const lines = [
@@ -227,40 +234,74 @@ function resolvePreset(text, presets) {
   return text.trim();
 }
 
+function isValidBusinessName(t) {
+  if (!t || t.length < 3) return false;
+  if (GREETING_WORDS.has(t.toLowerCase())) return false;
+  if (/^\d+$/.test(t)) return false;
+  return true;
+}
+
 const signupSessions = new Map();
+
+function bumpUnrelated(phone, session) {
+  const next = { ...session, unrelated: (session.unrelated ?? 0) + 1 };
+  signupSessions.set(phone, next);
+  return next;
+}
+
+function resetUnrelated(session) {
+  return { ...session, unrelated: 0 };
+}
 
 function handleSignup(phone, text) {
   const t = text.trim();
 
   if (t.toLowerCase() === "restart") {
-    signupSessions.set(phone, { state: "ASK_NAME" });
+    signupSessions.set(phone, { state: "ASK_NAME", unrelated: 0 });
     return SIGNUP_WELCOME;
   }
 
-  const session = signupSessions.get(phone) ?? { state: "ASK_NAME" };
+  const session = signupSessions.get(phone) ?? { state: "ASK_NAME", unrelated: 0 };
+
+  if ((session.unrelated ?? 0) >= MAX_UNRELATED) {
+    console.log(`🤐 Silent: ${phone} exceeded ${MAX_UNRELATED} unrelated replies (state=${session.state})`);
+    return null;
+  }
 
   switch (session.state) {
     case "ASK_NAME": {
-      if (!t) return "Please type your business name.";
-      signupSessions.set(phone, { state: "ASK_HOURS", name: t });
-      return `Great, *${t}*!\n\n` + presetPrompt(
+      if (!isValidBusinessName(t)) {
+        const next = bumpUnrelated(phone, session);
+        const remaining = MAX_UNRELATED - next.unrelated;
+        return `Please type your *real business name* (e.g. Glamour Salon Dubai). ${remaining > 0 ? `${remaining} tr${remaining === 1 ? "y" : "ies"} left.` : ""}`.trim();
+      }
+      const next = resetUnrelated({ state: "ASK_HOURS", name: t });
+      signupSessions.set(phone, next);
+      return SIGNUP_WELCOME.split("\n")[0] + "\n\n" + presetPrompt(
         "What are your working hours?",
         HOURS_PRESETS,
         "Sun-Fri 8am-8pm"
       );
     }
     case "ASK_HOURS": {
-      if (!t) return "Please pick a number or type your hours.";
+      if (!t) {
+        bumpUnrelated(phone, session);
+        return "Please pick a number (1-4) or type your hours.";
+      }
       const hours = resolvePreset(t, HOURS_PRESETS);
-      signupSessions.set(phone, { state: "ASK_SERVICES", name: session.name, hours });
-      return `Got it: *${hours}*\n\n` + presetPrompt(
+      const next = resetUnrelated({ state: "ASK_SERVICES", name: session.name, hours });
+      signupSessions.set(phone, next);
+      return presetPrompt(
         "Last one — your services with prices:",
         SERVICES_PRESETS,
         "Haircut 90, Color 250"
       );
     }
     case "ASK_SERVICES": {
-      if (!t) return "Please pick a number or type your services.";
+      if (!t) {
+        bumpUnrelated(phone, session);
+        return "Please pick a number (1-4) or type your services.";
+      }
       const services = resolvePreset(t, SERVICES_PRESETS);
       const lead = {
         savedAt: new Date().toISOString(),
@@ -275,7 +316,7 @@ function handleSignup(phone, text) {
       } catch (err) {
         console.error("Failed to append lead:", err.message);
       }
-      signupSessions.set(phone, { state: "DONE", ...lead });
+      signupSessions.set(phone, { state: "DONE", ...lead, unrelated: 0 });
       return [
         `Thanks, *${session.name}*! 🎉`,
         "",
@@ -289,8 +330,10 @@ function handleSignup(phone, text) {
       ].join("\n");
     }
     case "DONE":
-    default:
+    default: {
+      bumpUnrelated(phone, session);
       return "Got it — Francis has your info. Reply *restart* if you want to edit it.";
+    }
   }
 }
 
