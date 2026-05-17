@@ -194,6 +194,39 @@ const SIGNUP_WELCOME = [
   "Let's get you set up. *What's your business name?*",
 ].join("\n");
 
+const HOURS_PRESETS = [
+  "Sat-Thu 10am-9pm, Fri closed",
+  "Daily 10am-10pm",
+  "Sat-Thu 9am-10pm, Fri 2pm-10pm",
+  "Daily 11am-11pm",
+];
+
+const SERVICES_PRESETS = [
+  "Haircut 80, Beard 50, Shave 40 (AED)",
+  "Haircut 100, Blow-dry 80, Manicure 100, Pedicure 120 (AED)",
+  "Haircut 200, Color 400, Treatment 300, Facial 250 (AED)",
+  "Haircut 50, Beard 30, Shampoo 20 (AED)",
+];
+
+function presetPrompt(label, presets, exampleHint) {
+  const lines = [
+    `*${label}*`,
+    "",
+    "Tap a number to use a preset, or type your own:",
+    "",
+    ...presets.map((p, i) => `*${i + 1}.* ${p}`),
+    "",
+    `Or type your own (e.g. ${exampleHint}).`,
+  ];
+  return lines.join("\n");
+}
+
+function resolvePreset(text, presets) {
+  const idx = Number(text.trim()) - 1;
+  if (Number.isInteger(idx) && idx >= 0 && idx < presets.length) return presets[idx];
+  return text.trim();
+}
+
 const signupSessions = new Map();
 
 function handleSignup(phone, text) {
@@ -210,21 +243,31 @@ function handleSignup(phone, text) {
     case "ASK_NAME": {
       if (!t) return "Please type your business name.";
       signupSessions.set(phone, { state: "ASK_HOURS", name: t });
-      return `Great, *${t}*! What are your *working hours*?\n(e.g. Sat-Thu 10am-9pm, Fri closed)`;
+      return `Great, *${t}*!\n\n` + presetPrompt(
+        "What are your working hours?",
+        HOURS_PRESETS,
+        "Sun-Fri 8am-8pm"
+      );
     }
     case "ASK_HOURS": {
-      if (!t) return "Please type your working hours.";
-      signupSessions.set(phone, { state: "ASK_SERVICES", name: session.name, hours: t });
-      return "Last one — list your *services with prices*.\n(e.g. Haircut 80 AED, Beard 50 AED, Color 250 AED)";
+      if (!t) return "Please pick a number or type your hours.";
+      const hours = resolvePreset(t, HOURS_PRESETS);
+      signupSessions.set(phone, { state: "ASK_SERVICES", name: session.name, hours });
+      return `Got it: *${hours}*\n\n` + presetPrompt(
+        "Last one — your services with prices:",
+        SERVICES_PRESETS,
+        "Haircut 90, Color 250"
+      );
     }
     case "ASK_SERVICES": {
-      if (!t) return "Please type your services and prices.";
+      if (!t) return "Please pick a number or type your services.";
+      const services = resolvePreset(t, SERVICES_PRESETS);
       const lead = {
         savedAt: new Date().toISOString(),
         from: phone,
         name: session.name,
         hours: session.hours,
-        services: t,
+        services,
       };
       try {
         appendFileSync(LEADS_FILE, JSON.stringify(lead) + "\n");
@@ -233,7 +276,17 @@ function handleSignup(phone, text) {
         console.error("Failed to append lead:", err.message);
       }
       signupSessions.set(phone, { state: "DONE", ...lead });
-      return `Thanks, *${session.name}*! 🎉\n\nFrancis will reach out within 24h to set up your dedicated Rezzy booking bot.\n\nReply *restart* if you want to redo this form.`;
+      return [
+        `Thanks, *${session.name}*! 🎉`,
+        "",
+        "Here's what I saved:",
+        `• *Hours:* ${lead.hours}`,
+        `• *Services:* ${lead.services}`,
+        "",
+        "Francis will reach out within 24h to set up your dedicated Rezzy booking bot.",
+        "",
+        "Reply *restart* if you want to redo this form.",
+      ].join("\n");
     }
     case "DONE":
     default:
