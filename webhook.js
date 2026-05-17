@@ -195,18 +195,11 @@ const SIGNUP_WELCOME = [
   "(e.g. Glamour Salon Dubai)",
 ].join("\n");
 
-const HOURS_PRESETS = [
-  "Sat-Thu 10am-9pm, Fri closed",
-  "Daily 10am-10pm",
-  "Sat-Thu 9am-10pm, Fri 2pm-10pm",
-  "Daily 11am-11pm",
-];
-
-const SERVICES_PRESETS = [
-  "Haircut 80, Beard 50, Shave 40 (AED)",
-  "Haircut 100, Blow-dry 80, Manicure 100, Pedicure 120 (AED)",
-  "Haircut 200, Color 400, Treatment 300, Facial 250 (AED)",
-  "Haircut 50, Beard 30, Shampoo 20 (AED)",
+const CITY_PRESETS = [
+  "Dubai",
+  "Abu Dhabi",
+  "Sharjah",
+  "Other (we'll ask on the call)",
 ];
 
 const MAX_UNRELATED = 3;
@@ -275,44 +268,29 @@ function handleSignup(phone, text) {
         const remaining = MAX_UNRELATED - next.unrelated;
         return `Please type your *real business name* (e.g. Glamour Salon Dubai). ${remaining > 0 ? `${remaining} tr${remaining === 1 ? "y" : "ies"} left.` : ""}`.trim();
       }
-      const next = resetUnrelated({ state: "ASK_HOURS", name: t });
-      signupSessions.set(phone, next);
-      return SIGNUP_WELCOME.split("\n")[0] + "\n\n" + presetPrompt(
-        "What are your working hours?",
-        HOURS_PRESETS,
-        "Sun-Fri 8am-8pm"
-      );
-    }
-    case "ASK_HOURS": {
-      if (!t) {
-        bumpUnrelated(phone, session);
-        return "Please pick a number (1-4) or type your hours.";
-      }
-      const hours = resolvePreset(t, HOURS_PRESETS);
-      const next = resetUnrelated({ state: "ASK_SERVICES", name: session.name, hours });
+      const next = resetUnrelated({ state: "ASK_CITY", name: t });
       signupSessions.set(phone, next);
       return presetPrompt(
-        "Last one — your services with prices:",
-        SERVICES_PRESETS,
-        "Haircut 90, Color 250"
+        "Which city is your salon in?",
+        CITY_PRESETS,
+        "Ras al Khaimah"
       );
     }
-    case "ASK_SERVICES": {
+    case "ASK_CITY": {
       if (!t) {
         bumpUnrelated(phone, session);
-        return "Please pick a number (1-4) or type your services.";
+        return "Please pick a number (1-4) or type your city.";
       }
-      const services = resolvePreset(t, SERVICES_PRESETS);
+      const city = resolvePreset(t, CITY_PRESETS);
       const lead = {
         savedAt: new Date().toISOString(),
         from: phone,
         name: session.name,
-        hours: session.hours,
-        services,
+        city,
       };
       try {
         appendFileSync(LEADS_FILE, JSON.stringify(lead) + "\n");
-        console.log(`📝 New lead: ${lead.name} (${phone})`);
+        console.log(`📝 New lead: ${lead.name} in ${lead.city} (${phone})`);
       } catch (err) {
         console.error("Failed to append lead:", err.message);
       }
@@ -320,13 +298,11 @@ function handleSignup(phone, text) {
       return [
         `Thanks, *${session.name}*! 🎉`,
         "",
-        "Here's what I saved:",
-        `• *Hours:* ${lead.hours}`,
-        `• *Services:* ${lead.services}`,
+        `Saved: ${lead.name} — ${lead.city}`,
         "",
-        "Our staff will call you soon to set up your dedicated Rezzy booking bot.",
+        "Our staff will call you soon to discuss your working hours, services, and pricing — and to set up your dedicated Rezzy booking bot.",
         "",
-        "Reply *restart* if you want to redo this form.",
+        "Reply *restart* if you want to change anything.",
       ].join("\n");
     }
     case "DONE":
