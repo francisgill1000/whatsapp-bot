@@ -324,7 +324,7 @@ function handleSignup(phone, text) {
         `• *Hours:* ${lead.hours}`,
         `• *Services:* ${lead.services}`,
         "",
-        "Francis will reach out within 24h to set up your dedicated Rezzy booking bot.",
+        "Our staff will call you soon to set up your dedicated Rezzy booking bot.",
         "",
         "Reply *restart* if you want to redo this form.",
       ].join("\n");
@@ -332,7 +332,7 @@ function handleSignup(phone, text) {
     case "DONE":
     default: {
       bumpUnrelated(phone, session);
-      return "Got it — Francis has your info. Reply *restart* if you want to edit it.";
+      return "Got it — our staff has your info. Reply *restart* if you want to edit it.";
     }
   }
 }
