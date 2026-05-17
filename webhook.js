@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { createServer } from "node:http";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { readFileSync, writeFileSync, existsSync, renameSync } from "node:fs";
 
 const {
   WEBHOOK_VERIFY_TOKEN,
@@ -20,15 +21,51 @@ if (!WEBHOOK_VERIFY_TOKEN || !WHATSAPP_PHONE_NUMBER_ID || !WHATSAPP_TOKEN) {
 
 const twilioEnabled = !!(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_FROM);
 
-const availableSlots = new Set([
+const DATA_FILE = process.env.DATA_FILE ?? "./data.json";
+const DEFAULT_SLOTS = [
   "Tomorrow 10:00 AM",
   "Tomorrow 02:00 PM",
   "Friday 11:00 AM",
   "Friday 04:00 PM",
-]);
+];
 
-const bookings = new Map();
-const sessions = new Map();
+let availableSlots = new Set(DEFAULT_SLOTS);
+let bookings = new Map();
+let sessions = new Map();
+
+function loadState() {
+  if (!existsSync(DATA_FILE)) {
+    console.log(`📂 No state file at ${DATA_FILE} — starting fresh`);
+    return;
+  }
+  try {
+    const data = JSON.parse(readFileSync(DATA_FILE, "utf8"));
+    if (Array.isArray(data.availableSlots)) availableSlots = new Set(data.availableSlots);
+    if (Array.isArray(data.bookings)) bookings = new Map(data.bookings);
+    if (Array.isArray(data.sessions)) sessions = new Map(data.sessions);
+    console.log(`📂 State restored: ${availableSlots.size} slots, ${bookings.size} bookings, ${sessions.size} sessions`);
+  } catch (err) {
+    console.error(`Failed to load ${DATA_FILE}, starting fresh:`, err.message);
+  }
+}
+
+function saveState() {
+  const data = {
+    savedAt: new Date().toISOString(),
+    availableSlots: Array.from(availableSlots),
+    bookings: Array.from(bookings.entries()),
+    sessions: Array.from(sessions.entries()),
+  };
+  const tmp = DATA_FILE + ".tmp";
+  try {
+    writeFileSync(tmp, JSON.stringify(data, null, 2));
+    renameSync(tmp, DATA_FILE);
+  } catch (err) {
+    console.error("Failed to save state:", err.message);
+  }
+}
+
+loadState();
 
 const MENU = [
   "👋 Welcome to *Rezzy Booking*",
@@ -212,6 +249,7 @@ const server = createServer(async (req, res) => {
 
         if (type === "text" && text) {
           const reply = route(from, text);
+          saveState();
           await sendText(from, reply);
         } else {
           await sendText(from, MENU);
@@ -272,6 +310,7 @@ const server = createServer(async (req, res) => {
 
       if (from && text) {
         const reply = route(from, text);
+        saveState();
         await sendTwilioText(from, reply);
       }
     } catch (err) {
