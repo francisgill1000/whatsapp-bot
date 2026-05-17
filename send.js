@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 const {
   WHATSAPP_PHONE_NUMBER_ID,
   WHATSAPP_RECIPIENT,
@@ -6,7 +8,7 @@ const {
 } = process.env;
 
 if (!WHATSAPP_PHONE_NUMBER_ID || !WHATSAPP_RECIPIENT || !WHATSAPP_TOKEN) {
-  console.error("Missing env vars. Did you run with: node --env-file=.env send.js ?");
+  console.error("Missing env vars. Check your .env file.");
   process.exit(1);
 }
 

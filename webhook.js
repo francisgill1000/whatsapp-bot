@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { createServer } from "node:http";
 
 const {
@@ -9,7 +10,7 @@ const {
 } = process.env;
 
 if (!WEBHOOK_VERIFY_TOKEN || !WHATSAPP_PHONE_NUMBER_ID || !WHATSAPP_TOKEN) {
-  console.error("Missing env vars. Run with: node --env-file=.env webhook.js");
+  console.error("Missing env vars. Check your .env file.");
   process.exit(1);
 }
 
