@@ -2,3 +2,6 @@
 node_modules/
 data.json
 data.json.tmp
+leads.jsonl
+tenants/*-data.json
+tenants/*-data.json.tmp
