@@ -264,9 +264,8 @@ function handleSignup(phone, text) {
   switch (session.state) {
     case "ASK_NAME": {
       if (!isValidBusinessName(t)) {
-        const next = bumpUnrelated(phone, session);
-        const remaining = MAX_UNRELATED - next.unrelated;
-        return `Please type your *real business name* (e.g. Glamour Salon Dubai). ${remaining > 0 ? `${remaining} tr${remaining === 1 ? "y" : "ies"} left.` : ""}`.trim();
+        bumpUnrelated(phone, session);
+        return "Please type your *real business name* (e.g. Glamour Salon Dubai).";
       }
       const next = resetUnrelated({ state: "ASK_CITY", name: t });
       signupSessions.set(phone, next);
