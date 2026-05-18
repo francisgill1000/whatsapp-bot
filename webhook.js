@@ -27,6 +27,8 @@ const {
   TWILIO_FROM,
   ADMIN_USER,
   ADMIN_PASS,
+  ADMIN_NOTIFY_NUMBER,
+  ADMIN_NOTIFY_FROM,
 } = process.env;
 
 if (!WEBHOOK_VERIFY_TOKEN || !WHATSAPP_PHONE_NUMBER_ID || !WHATSAPP_TOKEN) {
@@ -296,6 +298,7 @@ function handleSignup(phone, text) {
       try {
         appendFileSync(LEADS_FILE, JSON.stringify(lead) + "\n");
         console.log(`📝 New lead: ${lead.name} in ${lead.city} (${phone})`);
+        notifyAdminOfLead(lead).catch((err) => console.error("Notify admin failed:", err.message));
       } catch (err) {
         console.error("Failed to append lead:", err.message);
       }
@@ -648,6 +651,25 @@ async function sendTwilio(toPhone, body, fromNumber) {
     return;
   }
   console.log(`↩️  (twilio from +${normalizeNumber(fromNumber)}) replied to ${toPhone}: ${body.split("\n")[0]}…`);
+}
+
+async function notifyAdminOfLead(lead) {
+  if (!ADMIN_NOTIFY_NUMBER) return;
+  if (!twilioEnabled) {
+    console.warn("Cannot notify admin: Twilio not configured");
+    return;
+  }
+  const fromNumber = ADMIN_NOTIFY_FROM ?? TWILIO_FROM;
+  const body = [
+    "🔔 New Rezzy lead",
+    "",
+    `Name: ${lead.name}`,
+    `City: ${lead.city}`,
+    `Phone: +${lead.from}`,
+    "",
+    "Open: https://bot.eloquentservice.com/admin",
+  ].join("\n");
+  await sendTwilio(ADMIN_NOTIFY_NUMBER, body, fromNumber);
 }
 
 async function sendMeta(toPhone, body) {
