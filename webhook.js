@@ -339,27 +339,184 @@ function validateTwilioSignature(fullUrl, params, signature) {
   return timingSafeEqual(a, b);
 }
 
-function checkBasicAuth(req) {
-  if (!ADMIN_USER || !ADMIN_PASS) return false;
-  const header = req.headers.authorization;
-  if (!header?.startsWith("Basic ")) return false;
-  const decoded = Buffer.from(header.slice(6), "base64").toString("utf8");
-  const idx = decoded.indexOf(":");
-  if (idx < 0) return false;
-  const givenUser = Buffer.from(decoded.slice(0, idx));
-  const givenPass = Buffer.from(decoded.slice(idx + 1));
-  const expectUser = Buffer.from(ADMIN_USER);
-  const expectPass = Buffer.from(ADMIN_PASS);
-  if (givenUser.length !== expectUser.length || givenPass.length !== expectPass.length) return false;
-  return timingSafeEqual(givenUser, expectUser) && timingSafeEqual(givenPass, expectPass);
+const SESSION_COOKIE = "rzy_session";
+const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+function sessionSecret() {
+  return createHmac("sha256", ADMIN_PASS || "no-pass").update("rezzy-admin-session-v1").digest();
 }
 
-function sendAuthRequired(res) {
-  res.writeHead(401, {
-    "WWW-Authenticate": 'Basic realm="Rezzy Admin", charset="UTF-8"',
-    "Content-Type": "text/plain",
-  });
-  res.end("Authentication required");
+function signSession(expSec) {
+  const sig = createHmac("sha256", sessionSecret()).update(String(expSec)).digest("hex");
+  return `${expSec}.${sig}`;
+}
+
+function verifySession(token) {
+  if (!token || typeof token !== "string") return false;
+  const dot = token.indexOf(".");
+  if (dot < 0) return false;
+  const expStr = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  const exp = parseInt(expStr, 10);
+  if (!exp || Math.floor(Date.now() / 1000) > exp) return false;
+  const expected = createHmac("sha256", sessionSecret()).update(expStr).digest("hex");
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function parseCookies(req) {
+  const header = req.headers.cookie || "";
+  const map = {};
+  for (const part of header.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx < 0) continue;
+    const k = part.slice(0, idx).trim();
+    const v = part.slice(idx + 1).trim();
+    if (k) map[k] = decodeURIComponent(v);
+  }
+  return map;
+}
+
+function isSecureRequest(req) {
+  const proto = req.headers["x-forwarded-proto"];
+  if (proto) return String(proto).split(",")[0].trim() === "https";
+  return !!req.socket?.encrypted;
+}
+
+function checkSession(req) {
+  if (!ADMIN_USER || !ADMIN_PASS) return false;
+  return verifySession(parseCookies(req)[SESSION_COOKIE]);
+}
+
+function credentialsValid(user, pass) {
+  if (!ADMIN_USER || !ADMIN_PASS) return false;
+  const gu = Buffer.from(String(user || ""));
+  const gp = Buffer.from(String(pass || ""));
+  const eu = Buffer.from(ADMIN_USER);
+  const ep = Buffer.from(ADMIN_PASS);
+  if (gu.length !== eu.length || gp.length !== ep.length) return false;
+  return timingSafeEqual(gu, eu) && timingSafeEqual(gp, ep);
+}
+
+function setSessionCookie(res, req) {
+  const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS;
+  const token = signSession(exp);
+  const parts = [
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
+    "HttpOnly",
+    "Path=/admin",
+    "SameSite=Strict",
+    `Max-Age=${SESSION_TTL_SECONDS}`,
+  ];
+  if (isSecureRequest(req)) parts.push("Secure");
+  res.setHeader("Set-Cookie", parts.join("; "));
+}
+
+function clearSessionCookie(res, req) {
+  const parts = [
+    `${SESSION_COOKIE}=`,
+    "HttpOnly",
+    "Path=/admin",
+    "SameSite=Strict",
+    "Max-Age=0",
+  ];
+  if (isSecureRequest(req)) parts.push("Secure");
+  res.setHeader("Set-Cookie", parts.join("; "));
+}
+
+function renderLoginPage({ error = "", nextPath = "/admin" } = {}) {
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in — Rezzy Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#16130f; --panel:#1d1916; --panel2:#241f1b; --line:#2c2722; --line2:#3a342e;
+    --ink:#f5efe7; --ink2:#b8ad9f; --ink3:#7d7368; --ink4:#5a5048;
+    --coral:#e87b56; --red:#e07a6b;
+  }
+  *,*::before,*::after { box-sizing:border-box; }
+  html,body { margin:0; padding:0; height:100%; font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  body { display:flex; align-items:center; justify-content:center; padding:24px; }
+  .card {
+    width:100%; max-width:380px; background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:32px 28px; box-shadow:0 24px 60px rgba(0,0,0,0.35);
+  }
+  .brand { display:flex; align-items:center; gap:10px; margin-bottom:22px; }
+  .logo {
+    width:30px; height:30px; border-radius:8px; background:var(--coral);
+    display:flex; align-items:center; justify-content:center; color:#1a1410; font-weight:700; font-size:15px;
+  }
+  .brand-name { font-weight:600; font-size:16px; letter-spacing:-0.01em; }
+  .brand-sub { color:var(--ink3); font-size:12.5px; margin-top:2px; }
+  h1 { margin:0 0 6px; font-size:20px; font-weight:600; letter-spacing:-0.01em; }
+  .lede { color:var(--ink3); font-size:13px; margin:0 0 22px; }
+  label { display:block; font-size:11px; color:var(--ink4); text-transform:uppercase; letter-spacing:0.07em; font-weight:600; margin-bottom:6px; }
+  input {
+    width:100%; padding:10px 12px; background:var(--panel2); border:1px solid var(--line2);
+    border-radius:8px; color:var(--ink); font-size:14px; font-family:inherit; outline:none;
+  }
+  input:focus { border-color:var(--coral); box-shadow:0 0 0 3px rgba(232,123,86,0.15); }
+  .field + .field { margin-top:14px; }
+  .err {
+    margin-top:16px; padding:9px 12px; background:rgba(224,122,107,0.10);
+    border:1px solid rgba(224,122,107,0.30); border-radius:8px;
+    color:var(--red); font-size:12.5px;
+  }
+  button[type=submit] {
+    margin-top:20px; width:100%; padding:11px 14px; border:none; border-radius:8px;
+    background:var(--coral); color:white; font-size:14px; font-weight:600; font-family:inherit;
+    cursor:pointer;
+  }
+  button[type=submit]:hover { background:#f08862; }
+  .foot { margin-top:18px; text-align:center; color:var(--ink4); font-size:11.5px; }
+</style>
+</head>
+<body>
+  <form class="card" method="POST" action="/admin/login" autocomplete="on">
+    <div class="brand">
+      <div class="logo">R</div>
+      <div>
+        <div class="brand-name">Rezzy</div>
+        <div class="brand-sub">Admin</div>
+      </div>
+    </div>
+    <h1>Sign in</h1>
+    <p class="lede">Enter your admin credentials to continue.</p>
+    <input type="hidden" name="next" value="${esc(nextPath)}">
+    <div class="field">
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" autocomplete="username" autofocus required>
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+    </div>
+    ${error ? `<div class="err">${esc(error)}</div>` : ""}
+    <button type="submit">Sign in</button>
+    <div class="foot">Rezzy Booking Bot · bot.eloquentservice.com</div>
+  </form>
+</body>
+</html>`;
+}
+
+function sendLoginPage(res, opts = {}, status = 200) {
+  res.writeHead(status, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+  res.end(renderLoginPage(opts));
+}
+
+function redirectToLogin(res, currentPath) {
+  const next = encodeURIComponent(currentPath || "/admin");
+  res.writeHead(302, { Location: `/admin/login?next=${next}` });
+  res.end();
 }
 
 function readLeads() {
@@ -515,8 +672,50 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/admin/login") {
+    if (checkSession(req)) {
+      res.writeHead(302, { Location: url.searchParams.get("next") || "/admin" });
+      res.end();
+      return;
+    }
+    sendLoginPage(res, { nextPath: url.searchParams.get("next") || "/admin" });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/admin/login") {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    if (raw.length > 4096) { res.writeHead(413); res.end(); return; }
+    const form = new URLSearchParams(raw);
+    const username = form.get("username") || "";
+    const password = form.get("password") || "";
+    const nextPath = (() => {
+      const n = form.get("next") || "/admin";
+      return n.startsWith("/admin") ? n : "/admin";
+    })();
+    if (!credentialsValid(username, password)) {
+      sendLoginPage(res, { error: "Invalid username or password.", nextPath }, 401);
+      return;
+    }
+    setSessionCookie(res, req);
+    res.writeHead(302, { Location: nextPath });
+    res.end();
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/admin/logout") {
+    clearSessionCookie(res, req);
+    res.writeHead(302, { Location: "/admin/login" });
+    res.end();
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/admin/leads.json") {
-    if (!checkBasicAuth(req)) { sendAuthRequired(res); return; }
+    if (!checkSession(req)) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "unauthorized" }));
+      return;
+    }
     const leads = readLeads();
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(leads));
@@ -524,7 +723,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (req.method === "GET" && (url.pathname === "/admin" || url.pathname.startsWith("/admin/"))) {
-    if (!checkBasicAuth(req)) { sendAuthRequired(res); return; }
+    if (!checkSession(req)) { redirectToLogin(res, url.pathname); return; }
     const rel = url.pathname === "/admin" ? "" : url.pathname.slice("/admin/".length);
     serveAdminFile(req, res, rel);
     return;

@@ -76,6 +76,12 @@
     display: flex; align-items: center; justify-content: center;
     font-size: 10px; font-weight: 700; color: white;
   }
+  .logout-form { display: inline-flex; margin: 0; }
+  .logout-btn {
+    padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line2);
+    background: var(--panel); color: var(--ink2); font-size: 12px; font-weight: 500;
+  }
+  .logout-btn:hover { background: var(--panel2); color: var(--ink); }
 
   /* Main split */
   .main { flex: 1; display: flex; min-height: 0; }
@@ -276,7 +282,9 @@
     <span class="shortcut"><span class="keys"><kbd>G</kbd><kbd>I</kbd></span><span>Inbox</span></span>
     <span class="shortcut"><span class="keys"><kbd>?</kbd></span><span>Shortcuts</span></span>
     <div class="v-sep"></div>
-    <div class="avatar" id="user-avatar">SA</div>
+    <form class="logout-form" method="POST" action="/admin/logout">
+      <button type="submit" class="logout-btn" title="Sign out">Logout</button>
+    </form>
   </div>
 </header>
 
@@ -564,6 +572,7 @@ async function load() {
   document.getElementById('sync-status').textContent = 'Syncing…';
   try {
     const res = await fetch('/admin/leads.json', { cache: 'no-store' });
+    if (res.status === 401) { window.location.href = '/admin/login'; return; }
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const raw = await res.json();
     STATE.leads = normalize(raw);
