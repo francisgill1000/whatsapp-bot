@@ -226,13 +226,54 @@
   .detail-titlerow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .detail-name { margin: 0; font-size: 22px; font-weight: 600; color: var(--ink); letter-spacing: -0.015em; }
   .detail-name.junk { font-style: italic; }
+  .status-pill-wrap { position: relative; display: inline-flex; }
   .status-pill {
-    display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px;
+    display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 9px;
     border-radius: 999px;
     background: rgba(232,123,86,0.12);
     border: 1px solid rgba(232,123,86,0.22);
     color: var(--coral);
     font-size: 11.5px; font-weight: 600;
+    cursor: pointer; transition: all 160ms var(--ease);
+    user-select: none;
+  }
+  .status-pill:focus-visible { outline: 2px solid var(--coral-glow); outline-offset: 2px; }
+  .status-pill:hover { background: rgba(232,123,86,0.18); }
+  .status-pill .caret { font-size: 9px; opacity: 0.7; margin-left: 1px; }
+  .status-pill.s-new      { background: rgba(232,123,86,0.12); border-color: rgba(232,123,86,0.22); color: var(--coral); }
+  .status-pill.s-contacted{ background: rgba(224,176,74,0.13); border-color: rgba(224,176,74,0.25); color: var(--amber); }
+  .status-pill.s-booked   { background: rgba(123,184,122,0.13); border-color: rgba(123,184,122,0.28); color: var(--green); }
+  .status-pill.s-lost     { background: rgba(224,122,107,0.13); border-color: rgba(224,122,107,0.28); color: var(--red); }
+  .status-pill.s-junk     { background: rgba(255,255,255,0.04); border-color: var(--line2); color: var(--ink3); }
+  .status-menu {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
+    min-width: 170px; padding: 5px;
+    background: rgba(28, 23, 19, 0.92);
+    backdrop-filter: saturate(160%) blur(var(--blur));
+    -webkit-backdrop-filter: saturate(160%) blur(var(--blur));
+    border: 1px solid var(--line2); border-radius: var(--radius-md);
+    box-shadow: 0 18px 48px rgba(0,0,0,0.45);
+    display: none;
+  }
+  .status-menu.open { display: block; }
+  .status-menu button {
+    width: 100%; text-align: left; padding: 7px 10px; border: none; background: transparent;
+    color: var(--ink); font-size: 12.5px; border-radius: 6px;
+    display: flex; align-items: center; gap: 9px;
+    transition: background 120ms var(--ease);
+  }
+  .status-menu button:hover { background: rgba(255,255,255,0.05); }
+  .status-menu button.current { background: rgba(255,255,255,0.04); }
+  .status-menu button .check { margin-left: auto; opacity: 0.7; font-size: 11px; }
+  .btn-danger {
+    padding: 9px 11px; border-radius: var(--radius-md);
+    border: 1px solid var(--line2); background: rgba(255,255,255,0.03); color: var(--ink2);
+    font-size: 13px;
+    transition: all 160ms var(--ease);
+  }
+  .btn-danger:hover {
+    background: rgba(224,122,107,0.10); color: var(--red); border-color: rgba(224,122,107,0.35);
+    box-shadow: 0 0 0 3px rgba(224,122,107,0.08);
   }
   .detail-meta {
     margin-top: 6px; font-size: 12.5px; color: var(--ink3);
@@ -470,7 +511,8 @@ function normalize(raw) {
     const id = l.id || `l${i}`;
     const name = l.name || '';
     const phone = l.from || '';
-    const junk = isJunk(name);
+    const status = l.status || (isJunk(name) ? 'junk' : 'new');
+    const junk = status === 'junk';
     const prev = seenPhone.get(phone);
     if (!seenPhone.has(phone) && phone) seenPhone.set(phone, id);
     return {
@@ -479,7 +521,7 @@ function normalize(raw) {
       city: l.city || null,
       whatsapp: phone,
       at: l.savedAt || l.at || null,
-      status: junk ? 'junk' : (l.status || 'new'),
+      status,
       service: l.service || null,
       note: l.note || null,
       initials: junk ? '?' : deriveInitials(name),
@@ -560,7 +602,8 @@ function renderList() {
   });
 }
 
-const STATUS_LABEL = { new: 'New', contacted: 'Contacted', booked: 'Booked', junk: 'Junk', lost: 'Lost' };
+const STATUS_LABEL = { new: 'New', contacted: 'Contacted', booked: 'Booked', lost: 'Lost', junk: 'Junk' };
+const STATUS_ORDER = ['new', 'contacted', 'booked', 'lost', 'junk'];
 
 function renderDetail() {
   const el = document.getElementById('detail');
@@ -577,8 +620,21 @@ function renderDetail() {
         <div class="detail-titlecol">
           <div class="detail-titlerow">
             <h2 class="detail-name ${lead.junk ? 'junk' : ''}">${esc(lead.salon)}</h2>
-            <span class="status-pill">
-              <span class="status-dot ${esc(lead.status)}"></span>${esc(STATUS_LABEL[lead.status] || 'New')}
+            <span class="status-pill-wrap">
+              <span class="status-pill s-${esc(lead.status)}" id="statusPill" data-id="${esc(lead.id)}" title="Click to change status" tabindex="0" role="button">
+                <span class="status-dot ${esc(lead.status)}"></span>
+                <span>${esc(STATUS_LABEL[lead.status] || 'New')}</span>
+                <span class="caret">▾</span>
+              </span>
+              <div class="status-menu" id="statusMenu" role="menu">
+                ${STATUS_ORDER.map(s => `
+                  <button type="button" data-status="${s}" class="${s === lead.status ? 'current' : ''}" role="menuitem">
+                    <span class="status-dot ${s}"></span>
+                    <span>${STATUS_LABEL[s]}</span>
+                    ${s === lead.status ? '<span class="check">✓</span>' : ''}
+                  </button>
+                `).join('')}
+              </div>
             </span>
             ${lead.duplicate ? '<span class="dup-badge">dup</span>' : ''}
           </div>
@@ -593,8 +649,7 @@ function renderDetail() {
           <a class="btn-primary" id="open-wa" href="${waHref}" target="_blank" rel="noopener">
             <span>WhatsApp</span><kbd>W</kbd>
           </a>
-          <button class="btn-secondary" disabled title="Coming soon">Mark booked</button>
-          <button class="btn-icon" disabled title="More">⋯</button>
+          <button type="button" class="btn-danger" id="deleteBtn" data-id="${esc(lead.id)}" title="Delete this lead">Delete</button>
         </div>
       </div>
       <div class="field-grid">
@@ -637,6 +692,85 @@ function renderDetail() {
       </div>
     </div>
   `;
+  wireDetailInteractions(lead);
+}
+
+function wireDetailInteractions(lead) {
+  const pill = document.getElementById('statusPill');
+  const menu = document.getElementById('statusMenu');
+  if (pill && menu) {
+    pill.addEventListener('click', (e) => {
+      if (e.target.closest('.status-menu')) return;
+      e.stopPropagation();
+      menu.classList.toggle('open');
+    });
+    menu.querySelectorAll('button[data-status]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const next = btn.dataset.status;
+        menu.classList.remove('open');
+        if (next === lead.status) return;
+        await updateStatus(lead.id, next);
+      });
+    });
+  }
+  const delBtn = document.getElementById('deleteBtn');
+  if (delBtn) {
+    delBtn.addEventListener('click', async () => {
+      if (!confirm(`Delete lead "${lead.salon}"? This can be restored from lead-overrides.json on the server.`)) return;
+      await deleteLead(lead.id);
+    });
+  }
+}
+
+document.addEventListener('click', () => {
+  document.getElementById('statusMenu')?.classList.remove('open');
+});
+
+async function updateStatus(id, status) {
+  const lead = STATE.leads.find(l => l.id === id);
+  if (!lead) return;
+  const prev = lead.status;
+  lead.status = status;
+  lead.junk = status === 'junk';
+  rerender();
+  try {
+    const res = await fetch('/admin/leads/status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify({ id, status }),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    document.getElementById('sync-status').textContent = `Status → ${STATUS_LABEL[status]}`;
+  } catch (err) {
+    lead.status = prev;
+    lead.junk = prev === 'junk';
+    rerender();
+    alert('Failed to update status: ' + err.message);
+  }
+}
+
+async function deleteLead(id) {
+  const idx = STATE.leads.findIndex(l => l.id === id);
+  if (idx < 0) return;
+  const removed = STATE.leads.splice(idx, 1)[0];
+  if (STATE.selectedId === id) STATE.selectedId = null;
+  rerender();
+  try {
+    const res = await fetch('/admin/leads/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify({ id, deleted: true }),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    document.getElementById('sync-status').textContent = 'Lead deleted';
+  } catch (err) {
+    STATE.leads.splice(idx, 0, removed);
+    rerender();
+    alert('Failed to delete lead: ' + err.message);
+  }
 }
 
 function rerender() {

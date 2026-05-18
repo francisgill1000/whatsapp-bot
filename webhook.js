@@ -38,6 +38,8 @@ const twilioEnabled = !!(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_FROM)
 
 const TENANTS_DIR = process.env.TENANTS_DIR ?? "./tenants";
 const LEADS_FILE = process.env.LEADS_FILE ?? "./leads.jsonl";
+const LEAD_OVERRIDES_FILE = process.env.LEAD_OVERRIDES_FILE ?? "./lead-overrides.json";
+const VALID_STATUSES = new Set(["new", "contacted", "booked", "lost", "junk"]);
 const SIGNUP_NUMBER = (process.env.SIGNUP_NUMBER ?? TWILIO_FROM ?? "").replace(/^\+/, "");
 
 if (!existsSync(TENANTS_DIR)) mkdirSync(TENANTS_DIR, { recursive: true });
@@ -523,10 +525,36 @@ function redirectToLogin(res, currentPath) {
   res.end();
 }
 
-function readLeads() {
-  if (!existsSync(LEADS_FILE)) return [];
+function leadKey(lead) {
+  return `${lead.from || ""}|${lead.savedAt || ""}`;
+}
+
+function readOverrides() {
+  if (!existsSync(LEAD_OVERRIDES_FILE)) return {};
   try {
-    return readFileSync(LEADS_FILE, "utf8")
+    const obj = JSON.parse(readFileSync(LEAD_OVERRIDES_FILE, "utf8"));
+    return obj && typeof obj === "object" ? obj : {};
+  } catch (err) {
+    console.error("Failed to read lead overrides:", err.message);
+    return {};
+  }
+}
+
+function writeOverrides(data) {
+  const tmp = LEAD_OVERRIDES_FILE + ".tmp";
+  try {
+    writeFileSync(tmp, JSON.stringify(data, null, 2));
+    renameSync(tmp, LEAD_OVERRIDES_FILE);
+  } catch (err) {
+    console.error("Failed to write lead overrides:", err.message);
+  }
+}
+
+function readLeads({ includeDeleted = false } = {}) {
+  if (!existsSync(LEADS_FILE)) return [];
+  let raw = [];
+  try {
+    raw = readFileSync(LEADS_FILE, "utf8")
       .split("\n")
       .filter(Boolean)
       .map((line) => {
@@ -537,6 +565,21 @@ function readLeads() {
     console.error("Failed to read leads:", err.message);
     return [];
   }
+  const overrides = readOverrides();
+  const out = [];
+  for (const lead of raw) {
+    const id = leadKey(lead);
+    const ov = overrides[id] || {};
+    if (ov.deleted && !includeDeleted) continue;
+    out.push({
+      ...lead,
+      id,
+      status: ov.status ?? lead.status ?? null,
+      deleted: !!ov.deleted,
+      statusUpdatedAt: ov.updatedAt ?? null,
+    });
+  }
+  return out;
 }
 
 const ADMIN_DIR = resolve(process.env.ADMIN_DIR ?? "./admin");
@@ -755,6 +798,51 @@ const server = createServer(async (req, res) => {
     const leads = readLeads();
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(leads));
+    return;
+  }
+
+  if (req.method === "POST" && (url.pathname === "/admin/leads/status" || url.pathname === "/admin/leads/delete")) {
+    if (!checkSession(req)) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "unauthorized" }));
+      return;
+    }
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    if (raw.length > 4096) { res.writeHead(413); res.end(); return; }
+    let payload;
+    try { payload = JSON.parse(raw); }
+    catch {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "invalid json" }));
+      return;
+    }
+    const id = String(payload?.id || "");
+    if (!id || !id.includes("|")) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "missing or invalid id" }));
+      return;
+    }
+    const overrides = readOverrides();
+    const now = new Date().toISOString();
+    if (url.pathname === "/admin/leads/status") {
+      const status = String(payload?.status || "");
+      if (!VALID_STATUSES.has(status)) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "invalid status" }));
+        return;
+      }
+      overrides[id] = { ...(overrides[id] || {}), status, updatedAt: now };
+      writeOverrides(overrides);
+      console.log(`📌 Status: ${id} → ${status}`);
+    } else {
+      const deleted = payload?.deleted !== false;
+      overrides[id] = { ...(overrides[id] || {}), deleted, updatedAt: now };
+      writeOverrides(overrides);
+      console.log(`🗑️  ${deleted ? "Delete" : "Restore"}: ${id}`);
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true }));
     return;
   }
 
