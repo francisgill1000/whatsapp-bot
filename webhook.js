@@ -11,6 +11,10 @@ import {
   mkdirSync,
 } from "node:fs";
 import { join, resolve, extname } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileP = promisify(execFile);
 
 const {
   WEBHOOK_VERIFY_TOKEN,
@@ -707,6 +711,38 @@ const server = createServer(async (req, res) => {
     clearSessionCookie(res, req);
     res.writeHead(302, { Location: "/admin/login" });
     res.end();
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/admin/deploy") {
+    if (!checkSession(req)) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "unauthorized" }));
+      return;
+    }
+    const cwd = process.env.DEPLOY_CWD ?? process.cwd();
+    const pmName = process.env.PM2_APP_NAME ?? "rezzy-bot";
+    let pullOutput = "";
+    let pullOk = true;
+    try {
+      const { stdout, stderr } = await execFileP("git", ["pull", "--ff-only"], { cwd, timeout: 30000 });
+      pullOutput = (stdout || "") + (stderr || "");
+      console.log(`🚀 Deploy: git pull\n${pullOutput.trim()}`);
+    } catch (err) {
+      pullOk = false;
+      pullOutput = (err.stdout || "") + (err.stderr || "") + (err.message || "");
+      console.error(`❌ Deploy: git pull failed: ${pullOutput.trim()}`);
+    }
+    res.writeHead(pullOk ? 200 : 500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: pullOk, output: pullOutput, restarting: pullOk }));
+    if (pullOk) {
+      setTimeout(() => {
+        execFile("pm2", ["restart", pmName], (err, stdout, stderr) => {
+          if (err) console.error(`❌ pm2 restart ${pmName} failed:`, err.message);
+          else console.log(`♻️  pm2 restart ${pmName}: ${(stdout || stderr || "").trim()}`);
+        });
+      }, 300);
+    }
     return;
   }
 

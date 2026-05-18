@@ -82,6 +82,19 @@
     background: var(--panel); color: var(--ink2); font-size: 12px; font-weight: 500;
   }
   .logout-btn:hover { background: var(--panel2); color: var(--ink); }
+  .deploy-btn {
+    padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line2);
+    background: var(--panel); color: var(--ink2); font-size: 12px; font-weight: 500;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .deploy-btn:hover { background: var(--panel2); color: var(--ink); }
+  .deploy-btn.busy { opacity: 0.6; cursor: progress; }
+  .deploy-btn.ok { border-color: var(--green); color: var(--green); }
+  .deploy-btn.err { border-color: var(--red); color: var(--red); }
+  .deploy-btn .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--coral); }
+  .deploy-btn.busy .dot { background: var(--amber); }
+  .deploy-btn.ok .dot { background: var(--green); }
+  .deploy-btn.err .dot { background: var(--red); }
 
   /* Main split */
   .main { flex: 1; display: flex; min-height: 0; }
@@ -282,6 +295,9 @@
     <span class="shortcut"><span class="keys"><kbd>G</kbd><kbd>I</kbd></span><span>Inbox</span></span>
     <span class="shortcut"><span class="keys"><kbd>?</kbd></span><span>Shortcuts</span></span>
     <div class="v-sep"></div>
+    <button type="button" id="deployBtn" class="deploy-btn" title="git pull + pm2 restart">
+      <span class="dot"></span><span id="deployLabel">Deploy</span>
+    </button>
     <form class="logout-form" method="POST" action="/admin/logout">
       <button type="submit" class="logout-btn" title="Sign out">Logout</button>
     </form>
