@@ -10,7 +10,7 @@ import {
   appendFileSync,
   mkdirSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve, extname } from "node:path";
 
 const {
   WEBHOOK_VERIFY_TOKEN,
@@ -378,77 +378,49 @@ function readLeads() {
   }
 }
 
-const ADMIN_HTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rezzy Admin — Leads</title>
-<style>
-  :root { color-scheme: light dark; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 24px; max-width: 1000px; margin: 0 auto; background: #fafafa; color: #1a1a1a; }
-  h1 { font-size: 1.5em; margin: 0 0 0.25em; }
-  .meta { color: #666; margin-bottom: 1.5em; font-size: 0.9em; display: flex; gap: 1em; align-items: center; flex-wrap: wrap; }
-  .meta button { font-size: 0.85em; padding: 4px 10px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer; }
-  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-  th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
-  th { background: #f7f7f7; font-weight: 600; font-size: 0.85em; text-transform: uppercase; color: #555; letter-spacing: 0.03em; }
-  tr:last-child td { border-bottom: none; }
-  tr:hover { background: #fafafa; }
-  .empty { color: #999; text-align: center; padding: 3em 1em; }
-  .phone { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.9em; }
-  .time { color: #777; font-size: 0.85em; white-space: nowrap; }
-  .wa-link { color: #25d366; text-decoration: none; font-weight: 500; }
-  .wa-link:hover { text-decoration: underline; }
-  @media (max-width: 640px) {
-    body { padding: 16px; }
-    th:nth-child(4), td:nth-child(4) { display: none; }
-    th, td { padding: 10px; font-size: 0.95em; }
-  }
-</style>
-</head>
-<body>
-  <h1>🎯 Rezzy Leads</h1>
-  <div class="meta">
-    <span id="count">Loading…</span>
-    <button onclick="load()">↻ Refresh</button>
-  </div>
-  <table>
-    <thead>
-      <tr><th>Salon</th><th>City</th><th>WhatsApp</th><th>When</th></tr>
-    </thead>
-    <tbody id="rows"></tbody>
-  </table>
-<script>
-function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-async function load() {
-  document.getElementById("count").textContent = "Loading…";
-  const res = await fetch("/admin/leads.json", { cache: "no-store" });
-  if (!res.ok) { document.getElementById("count").textContent = "Error: " + res.status; return; }
-  const leads = await res.json();
-  const tbody = document.getElementById("rows");
-  document.getElementById("count").textContent = leads.length + " lead" + (leads.length === 1 ? "" : "s");
-  if (leads.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty">No leads yet. Share <strong>+971 54 172 1640</strong> to start collecting.</td></tr>';
+const ADMIN_DIR = resolve(process.env.ADMIN_DIR ?? "./admin");
+
+const MIME_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".ico": "image/x-icon",
+  ".webp": "image/webp",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".txt": "text/plain; charset=utf-8",
+};
+
+function serveAdminFile(req, res, relPath) {
+  const safePath = relPath.replace(/^\/+/, "") || "index.html";
+  const absPath = resolve(ADMIN_DIR, safePath);
+  if (!absPath.startsWith(ADMIN_DIR + (process.platform === "win32" ? "\\" : "/")) && absPath !== ADMIN_DIR) {
+    res.writeHead(403);
+    res.end("Forbidden");
     return;
   }
-  leads.sort((a, b) => (b.savedAt || "").localeCompare(a.savedAt || ""));
-  tbody.innerHTML = leads.map(l => {
-    const when = l.savedAt ? new Date(l.savedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : "";
-    const phone = l.from || "";
-    const waLink = phone ? '<a class="wa-link" href="https://wa.me/' + esc(phone) + '" target="_blank">' + esc(phone) + '</a>' : "";
-    return '<tr>' +
-      '<td>' + esc(l.name) + '</td>' +
-      '<td>' + esc(l.city) + '</td>' +
-      '<td class="phone">' + waLink + '</td>' +
-      '<td class="time">' + esc(when) + '</td>' +
-    '</tr>';
-  }).join("");
+  if (!existsSync(absPath)) {
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("Not found");
+    return;
+  }
+  try {
+    const data = readFileSync(absPath);
+    const type = MIME_TYPES[extname(absPath).toLowerCase()] ?? "application/octet-stream";
+    res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-store" });
+    res.end(data);
+  } catch (err) {
+    console.error(`Failed to serve ${absPath}:`, err.message);
+    res.writeHead(500);
+    res.end("Server error");
+  }
 }
-load();
-</script>
-</body>
-</html>`;
 
 async function sendTwilio(toPhone, body, fromNumber) {
   const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
@@ -543,18 +515,18 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === "GET" && (url.pathname === "/admin" || url.pathname === "/admin/")) {
-    if (!checkBasicAuth(req)) { sendAuthRequired(res); return; }
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(ADMIN_HTML);
-    return;
-  }
-
   if (req.method === "GET" && url.pathname === "/admin/leads.json") {
     if (!checkBasicAuth(req)) { sendAuthRequired(res); return; }
     const leads = readLeads();
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(leads));
+    return;
+  }
+
+  if (req.method === "GET" && (url.pathname === "/admin" || url.pathname.startsWith("/admin/"))) {
+    if (!checkBasicAuth(req)) { sendAuthRequired(res); return; }
+    const rel = url.pathname === "/admin" ? "" : url.pathname.slice("/admin/".length);
+    serveAdminFile(req, res, rel);
     return;
   }
 
@@ -621,5 +593,5 @@ server.listen(Number(WEBHOOK_PORT), () => {
   console.log(`   Signup number:  +${SIGNUP_NUMBER || "(unset)"}`);
   console.log(`   Tenants:        ${tenants.size} loaded`);
   console.log(`   Leads file:     ${LEADS_FILE}`);
-  console.log(`   Admin UI:       /admin     ${ADMIN_USER && ADMIN_PASS ? `(user: ${ADMIN_USER})` : "(disabled — set ADMIN_USER + ADMIN_PASS in .env)"}`);
+  console.log(`   Admin UI:       /admin     ${ADMIN_USER && ADMIN_PASS ? `(user: ${ADMIN_USER}, dir: ${ADMIN_DIR})` : "(disabled — set ADMIN_USER + ADMIN_PASS in .env)"}`);
 });
