@@ -29,6 +29,7 @@ const {
   ADMIN_PASS,
   ADMIN_NOTIFY_NUMBER,
   ADMIN_NOTIFY_FROM,
+  ADMIN_NOTIFY_TEMPLATE_SID,
 } = process.env;
 
 if (!WEBHOOK_VERIFY_TOKEN || !WHATSAPP_PHONE_NUMBER_ID || !WHATSAPP_TOKEN) {
@@ -660,6 +661,14 @@ async function notifyAdminOfLead(lead) {
     return;
   }
   const fromNumber = ADMIN_NOTIFY_FROM ?? TWILIO_FROM;
+  if (ADMIN_NOTIFY_TEMPLATE_SID) {
+    await sendTwilioTemplate(ADMIN_NOTIFY_NUMBER, fromNumber, ADMIN_NOTIFY_TEMPLATE_SID, {
+      "1": lead.name,
+      "2": lead.city,
+      "3": "+" + lead.from,
+    });
+    return;
+  }
   const body = [
     "🔔 New Rezzy lead",
     "",
@@ -670,6 +679,31 @@ async function notifyAdminOfLead(lead) {
     "Open: https://bot.eloquentservice.com/admin",
   ].join("\n");
   await sendTwilio(ADMIN_NOTIFY_NUMBER, body, fromNumber);
+}
+
+async function sendTwilioTemplate(toPhone, fromNumber, contentSid, variables) {
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
+  const auth = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString("base64");
+  const form = new URLSearchParams({
+    From: `whatsapp:+${normalizeNumber(fromNumber)}`,
+    To: `whatsapp:+${normalizeNumber(toPhone)}`,
+    ContentSid: contentSid,
+    ContentVariables: JSON.stringify(variables),
+  });
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: form,
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    console.error("❌ Twilio template send failed:", res.status, JSON.stringify(data));
+    return;
+  }
+  console.log(`↩️  (twilio template ${contentSid}) sent to ${toPhone}`);
 }
 
 async function sendMeta(toPhone, body) {
