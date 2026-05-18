@@ -640,6 +640,39 @@ document.addEventListener('keydown', (e) => {
 });
 
 load();
+
+const deployBtn = document.getElementById('deployBtn');
+const deployLabel = document.getElementById('deployLabel');
+deployBtn?.addEventListener('click', async () => {
+  if (deployBtn.classList.contains('busy')) return;
+  if (!confirm('Run git pull + pm2 restart on the server?')) return;
+  deployBtn.classList.remove('ok', 'err');
+  deployBtn.classList.add('busy');
+  deployLabel.textContent = 'Deploying…';
+  try {
+    const res = await fetch('/admin/deploy', { method: 'POST', cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    deployBtn.classList.remove('busy');
+    if (res.ok && data.ok) {
+      deployBtn.classList.add('ok');
+      const head = (data.output || '').trim().split('\n')[0] || 'Up to date';
+      deployLabel.textContent = head.length > 28 ? head.slice(0, 28) + '…' : head;
+      setTimeout(() => { deployBtn.classList.remove('ok'); deployLabel.textContent = 'Deploy'; }, 6000);
+    } else {
+      deployBtn.classList.add('err');
+      deployLabel.textContent = 'Failed';
+      console.error('Deploy failed:', data);
+      alert('Deploy failed:\n\n' + (data.output || data.error || 'unknown error'));
+      setTimeout(() => { deployBtn.classList.remove('err'); deployLabel.textContent = 'Deploy'; }, 6000);
+    }
+  } catch (err) {
+    deployBtn.classList.remove('busy');
+    deployBtn.classList.add('err');
+    deployLabel.textContent = 'Failed';
+    alert('Deploy request failed: ' + err.message);
+    setTimeout(() => { deployBtn.classList.remove('err'); deployLabel.textContent = 'Deploy'; }, 6000);
+  }
+});
 </script>
 </body>
 </html>
